@@ -4,5 +4,7 @@
 /.env
 /.private
 /logs/*.txt
-/historical
+/historical/*
 /conf.yaml
+
+!/historical/README.md
