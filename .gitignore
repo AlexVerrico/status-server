@@ -7,5 +7,6 @@
 /historical/*
 /conf.yaml
 __pycache__
+docs/development
 
 !/historical/README.md
