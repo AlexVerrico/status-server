@@ -6,5 +6,6 @@
 /logs/*.txt
 /historical/*
 /conf.yaml
+__pycache__
 
 !/historical/README.md
