@@ -1,0 +1,8 @@
+/main.sqlite
+/venv
+/.idea
+/.env
+/.private
+/logs/*.txt
+/historical
+/conf.yaml
