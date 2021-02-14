@@ -1,0 +1,15 @@
+main_conf:
+  api_config:
+    api_base_url : /api/v1/   # The base URL that the API is accessed from
+    flask_debug : False    # Enable/disable Flask debugger
+    flask_port : 5555   # The port to run the API on
+    flask_address : localhost   # The address for Flask to bind to (eg. localhost, 0.0.0.0, 192.168.1.2, etc.)
+    value_update_prefix: update/ # The url to prefix to urls for systems to access. For example, update/ would make the heartbeat url /api/v1/update/heartbeat
+    value_fetch_prefix: fetch/
+    admin_prefix: admin/ # The url prefix for admin endpoints such as new_auth
+    general_prefix: general/ # The url prefix for general endpoints such as check_auth
+    enable_historical: True # If True, each time that a system updates a value the API will log it along with a timestamp to the file "BASE_DIRECTORY"/historical/"SYSTEM_ID"/"VALUE_NAME".json
+  environment_config:
+    base_directory : /path/to/base_directory/    # The directory that main.py is in
+    database_name : main.sqlite   # Filename of the SQLite3 database, relative to the base_directory
+    log_directory : logs/     # Directory to store log files in, relative to the base_directory
