@@ -142,6 +142,17 @@ def run_queue():
                     _con.commit()
                     del operation
                     continue
+            elif operation[0] == 'update_system_value':
+                with closing(sqlite3.connect(database_path)) as _con, closing(_con.cursor()) as cursor:
+                    db_fetch_value_cmd = 'SELECT system_data FROM systems_stats WHERE id = ?'
+                    old_values = cursor.execute(db_fetch_value_cmd, (operation[1],)).fetchone()[0]
+                    new_values = json.loads(old_values)
+                    new_values[operation[2]] = json.loads(operation[3])
+                    db_update_value_cmd = 'UPDATE systems_stats SET system_data = ? WHERE id = ?'
+                    cursor.execute(db_update_value_cmd, (json.dumps(new_values), operation[1],))
+                    _con.commit()
+                    del operation
+                    continue
             else:
                 sleep(0.1)
                 continue
@@ -239,32 +250,34 @@ def api_historical(_id, _val_name, _data):
 @app.route(f'{api_base_url}{api_admin_prefix}new_auth', methods=['POST', 'GET'])
 def api_admin_new_auth():
     _system_name = None
-    if 'id' not in request.args or 'auth' not in request.args or 'access_level' not in request.args:
-        return '', 400
+    required_args = ['id', 'auth', 'access_level']
+    for arg in required_args:
+        if arg not in request.values:
+            return f'Error: missing required argument "{arg}"', 400
     if request.args['access_level'] == 'system':
         if 'system_name' not in request.args:
-            return '', 400
+            return 'Error: missing required argument "system_name"', 400
         _system_name = request.args['system_name']
     _id = request.args['id']
     _auth = request.args['auth']
     _access_level = request.args['access_level']
     if _access_level == 'admin':
         if auth(_id, _auth, access_level='owner') is False:
-            return '', 401
+            return 'Error: you do not have the proper credentials', 401
     else:
         if auth(_id, _auth, access_level='admin') is False and auth(_id, _auth, access_level='owner') is False:
-            return '', 401
+            return 'Error: you do not have the proper credentials', 401
     new_id, new_auth, hashed_new_auth = generate_new_auth()
     database_operations_queue.put(['new_row', 'auth', (new_id, hashed_new_auth, _access_level,)])
     if _system_name:
-        database_operations_queue.put(['new_row', 'systems_stats', (new_id, _system_name, None, None, None, None, None, None, None,)])
+        database_operations_queue.put(['new_row', 'systems_stats', (new_id, _system_name, None, '{}')])
     if os.path.exists(f'{historical_directory}{new_id}/') is False:
         os.makedirs(f'{historical_directory}{new_id}/')
     sleep(5)
     trash, response = api_check_auth(_id=new_id, _auth=new_auth)
     if response == 200:
         return jsonify({'id': new_id, 'auth': new_auth}), 200
-    return '', 500
+    return 'Error', 500
 
 # ###########################
 # ### END ADMIN ENDPOINTS ###
@@ -279,14 +292,14 @@ def api_admin_new_auth():
 def api_check_auth(_id=None, _auth=None):
     if not _id:
         if 'id' not in request.args:
-            return '', 400
+            return 'Error: Missing required argument "id"', 400
         _id = request.args['id']
     if not _auth:
         if 'auth' not in request.args:
-            return '', 400
+            return 'Error: Missing required argument "auth"', 400
         _auth = request.args['auth']
     if auth(_id, _auth, access_level='any') is False:
-        return '', 401
+        return 'Error: you do not have the proper credentials', 401
     return '', 200
 
 # #############################
@@ -300,12 +313,14 @@ def api_check_auth(_id=None, _auth=None):
 
 @app.route(f'{api_base_url}{api_value_update_prefix}heartbeat', methods=['GET', 'POST'])
 def api_update_heartbeat():
-    if 'id' not in request.args or 'auth' not in request.args:
-        return '', 400
+    required_args = ['id', 'auth']
+    for arg in required_args:
+        if arg not in request.values:
+            return f'Error: missing required argument "{arg}"', 400
     _id = request.args['id']
     _auth = request.args['auth']
     if auth(_id, _auth, access_level='system') is False:
-        return '', 401
+        return 'Error: you do not have the proper credentials', 401
     now = time()
     database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'heartbeat', str(now)])
     api_historical(_id, 'heartbeat', now)
@@ -313,95 +328,36 @@ def api_update_heartbeat():
 
 
 @app.route(f'{api_base_url}{api_value_update_prefix}logging', methods=['GET', 'POST'])
-def api_system_logging():
-    if 'id' not in request.values or 'auth' not in request.values or 'data' not in request.values:
-        return '', 400
+def api_update_logging():
+    required_args = ['id', 'auth', 'data']
+    for arg in required_args:
+        if arg not in request.values:
+            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
     _auth = request.values['auth']
     if auth(_id, _auth, access_level='system') is False:
-        return '', 401
+        return 'Error: you do not have the proper credentials', 401
     _data = request.values['data']
     with open(f"{log_directory}{str(_id)}.txt", 'a') as f:
         f.write(f'{time()}:     {str(_data)}\n\n\n')
     return '', 200
 
 
-@app.route(f'{api_base_url}{api_value_update_prefix}ips', methods=['GET', 'POST'])
-def api_update_ips():
-    if 'id' not in request.values or 'auth' not in request.values or 'data' not in request.values:
-        return '', 400
+@app.route(f'{api_base_url}{api_value_update_prefix}main', methods=['GET', 'POST'])
+def api_update_main():
+    required_args = ['id', 'auth', 'value', 'data']
+    for arg in required_args:
+        if arg not in request.values:
+            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
     _auth = request.values['auth']
     if auth(_id, _auth, access_level='system') is False:
-        return '', 401
-    _ips = json.loads(request.values['data'])
-    database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'ips', json.dumps(_ips)])
+        return 'Error: you do not have the proper credentials', 401
+    _value = request.values['value']
+    _data = json.loads(request.values['data'])
+    database_operations_queue.put(['update_system_value', str(_id), str(_value), json.dumps(_data)])
     return '', 200
 
-
-@app.route(f'{api_base_url}{api_value_update_prefix}public_ips', methods=['GET', 'POST'])
-def api_update_public_ips():
-    if 'id' not in request.values or 'auth' not in request.values or 'data' not in request.values:
-        return '', 400
-    _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return '', 401
-    _public_ip = request.values['data']
-    database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'public_ip', json.dumps(_public_ip)])
-    return '', 200
-
-
-@app.route(f'{api_base_url}{api_value_update_prefix}cpu_temps', methods=['GET', 'POST'])
-def api_update_cpu_temps():
-    if 'id' not in request.values or 'auth' not in request.values or 'data' not in request.values:
-        return '', 400
-    _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return '', 401
-    _cpu_temps = json.loads(request.values['data'])
-    database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'cpu_temps', json.dumps(_cpu_temps)])
-    return '', 200
-
-
-@app.route(f'{api_base_url}{api_value_update_prefix}gpu_temps', methods=['GET', 'POST'])
-def api_update_gpu_temps():
-    if 'id' not in request.values or 'auth' not in request.values or 'data' not in request.values:
-        return '', 400
-    _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return '', 401
-    _gpu_temps = json.loads(request.values['data'])
-    database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'gpu_temps', json.dumps(_gpu_temps)])
-    return '', 200
-
-
-@app.route(f'{api_base_url}{api_value_update_prefix}disk', methods=['GET', 'POST'])
-def api_update_disk():
-    if 'id' not in request.values or 'auth' not in request.values or 'data' not in request.values:
-        return '', 400
-    _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return '', 401
-    _disk = json.loads(request.values['data'])
-    database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'disk', json.dumps(_disk)])
-    return '', 200
-
-
-@app.route(f'{api_base_url}{api_value_update_prefix}memory', methods=['GET', 'POST'])
-def api_update_memory():
-    if 'id' not in request.values or 'auth' not in request.values or 'data' not in request.values:
-        return '', 400
-    _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return '', 401
-    _memory = json.loads(request.values['data'])
-    database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'memory', json.dumps(_memory)])
-    return '', 200
 
 # ############################
 # ### END SYSTEM ENDPOINTS ###
@@ -424,17 +380,38 @@ def api_fetch_main():
             auth(_id, _auth, access_level='admin') is False and \
             auth(_id, _auth, access_level='owner') is False:
         return 'Error: you do not have the proper credentials', 401
-    allowed_values = ['system_name', 'ips', 'public_ips', 'cpu_temps', 'gpu_temps', 'disk', 'memory', 'heartbeat']
     _value = request.values['value']
-    if _value not in allowed_values:
-        return 'Error: that value is not allowed', 400
     _system_id = request.values['system_id']
     with closing(sqlite3.connect(database_path)) as _db, closing(_db.cursor()) as _cur:
         if (str(_system_id),) not in _cur.execute('SELECT id FROM auth').fetchall():
             return 'Error: that system ID does not exist', 400
     with closing(sqlite3.connect(database_path)) as _db, closing(_db.cursor()) as _cur:
-        _temp = json.loads(_cur.execute('SELECT %s FROM systems_stats WHERE id = ?' % _value, (_system_id,)).fetchone()[0].replace("'", '"'))
-    return jsonify(_temp)
+        _temp = json.loads(_cur.execute('SELECT system_data FROM systems_stats WHERE id = ?', (_system_id,)).fetchone()[0])
+    try:
+        return jsonify(_temp[_value])
+    except KeyError:
+        return 'Error: that value name does not exist yet for that system', 400
+
+
+@app.route(f'{api_base_url}{api_value_fetch_prefix}heartbeat', methods=['GET', 'POST'])
+def api_fetch_heartbeat():
+    required_args = ['id', 'auth', 'system_id']
+    for arg in required_args:
+        if arg not in request.values:
+            return f'Error: missing required argument "{arg}"', 400
+    _id = request.values['id']
+    _auth = request.values['auth']
+    if auth(_id, _auth, access_level='client') is False and \
+            auth(_id, _auth, access_level='admin') is False and \
+            auth(_id, _auth, access_level='owner') is False:
+        return 'Error: you do not have the proper credentials', 401
+    _system_id = request.values['system_id']
+    with closing(sqlite3.connect(database_path)) as _db, closing(_db.cursor()) as _cur:
+        if (str(_system_id),) not in _cur.execute('SELECT id FROM auth').fetchall():
+            return 'Error: that system ID does not exist', 400
+    with closing(sqlite3.connect(database_path)) as _db, closing(_db.cursor()) as _cur:
+        _temp = _cur.execute('SELECT heartbeat FROM systems_stats WHERE id = ?', (_system_id,)).fetchone()[0]
+    return _temp
 
 # ############################
 # ### END CLIENT ENDPOINTS ###
