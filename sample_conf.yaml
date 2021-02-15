@@ -1,6 +1,6 @@
 main_conf:
   api_config:
-    api_base_url : /api/v1/   # The base URL that the API is accessed from
+    api_base_url : /api/v2/   # The base URL that the API is accessed from
     flask_debug : False    # Enable/disable Flask debugger
     flask_port : 5555   # The port to run the API on
     flask_address : localhost   # The address for Flask to bind to (eg. localhost, 0.0.0.0, 192.168.1.2, etc.)
