@@ -6,7 +6,9 @@
 /logs/*.txt
 /historical/*
 /conf.yaml
-__pycache__
-docs/development
+/__pycache__
+/docs/development
+
+/static/tests
 
 !/historical/README.md
