@@ -354,7 +354,10 @@ def api_update_main():
     if auth(_id, _auth, access_level='system') is False:
         return 'Error: you do not have the proper credentials', 401
     _value = request.values['value']
-    _data = json.loads(request.values['data'])
+    try:
+        _data = json.loads(request.values['data'])
+    except:
+        return 'Error: invalid "data" value', 500
     database_operations_queue.put(['update_system_value', str(_id), str(_value), json.dumps(_data)])
     return '', 200
 
