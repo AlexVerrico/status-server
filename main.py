@@ -15,29 +15,22 @@ from time import sleep, time
 from random import choice
 from string import ascii_lowercase, digits as ascii_digits, ascii_uppercase
 import yaml
-from typing import List
 from contextlib import closing
 import hashlib
 import binascii
+import confChecker
 
 # ###################
 # ### END IMPORTS ###
 # ###################
 
 
-# This function had to be put here to allow the conf to be loaded properly
-def check_for_conf_key(level_list: List, current_level):
-    try:
-        x = current_level[level_list.pop(0)]
-        if level_list:
-            check_for_conf_key(level_list, x)
-    except TypeError:
-        raise KeyError
-
-
 # #############################
 # ### BEGIN LOADING OF CONF ###
 # #############################
+
+# Create confChecker object
+confChecker = confChecker.ConfChecker()
 
 # List of critical environment variables
 required_env_variables = ['CONF_FILE']
@@ -45,10 +38,8 @@ required_env_variables = ['CONF_FILE']
 # Load the .env file
 load_dotenv()
 
-# Check whether critical environment variables are set, and if not raise an exception
-for i in required_env_variables:
-    if os.getenv(i) is None:
-        raise Exception('Fatal Error: Environment Variable %s not defined' % i)
+# Check whether critical environment variables are set
+confChecker.check_env(required_env_variables)
 
 # Get the location of the conf.yaml file
 conf_file = os.getenv('CONF_FILE')
@@ -69,15 +60,8 @@ required_conf_variables = [['main_conf', 'environment_config', 'base_directory']
                            ['main_conf', 'api_config', 'general_prefix'],
                            ['main_conf', 'api_config', 'value_fetch_prefix']]
 
-# Check whether critical conf.yaml values are set, and if not raise an exception
-for var_list in required_conf_variables:
-    x = var_list[0:]
-    try:
-        check_for_conf_key(x, conf)
-    except KeyError:
-        raise Exception(f'Fatal Error: conf key \"{"->".join(var_list)}\" is non-existent')
-    finally:
-        del x
+# Check whether critical conf.yaml values are set
+confChecker.check_yaml(conf, required_conf_variables)
 
 # Declare globally used variables
 environment_config = conf['main_conf']['environment_config']
