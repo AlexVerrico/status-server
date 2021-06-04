@@ -18,7 +18,7 @@ import yaml
 from contextlib import closing
 import hashlib
 import binascii
-import confChecker
+import python_confChecker as confChecker
 
 # ###################
 # ### END IMPORTS ###
@@ -28,9 +28,6 @@ import confChecker
 # #############################
 # ### BEGIN LOADING OF CONF ###
 # #############################
-
-# Create confChecker object
-confChecker = confChecker.ConfChecker()
 
 # List of critical environment variables
 required_env_variables = ['CONF_FILE']
