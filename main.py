@@ -439,6 +439,7 @@ def api_update_main():
     except:
         return 'Error: invalid "data" value', 500
     database_operations_queue.put(['update_system_value', str(_id), str(_value), json.dumps(_data)])
+    api_historical(_id, _value, _data)
     return '', 200
 
 
