@@ -4,8 +4,7 @@
 # #####################
 # ### BEGIN IMPORTS ###
 # #####################
-
-from flask import Flask, request, jsonify, json
+from flask import Flask, request, jsonify, json, abort
 import sqlite3
 from dotenv import load_dotenv
 import os
@@ -19,6 +18,7 @@ from contextlib import closing
 import hashlib
 import binascii
 import python_confChecker as confChecker
+from functools import wraps
 
 # ###################
 # ### END IMPORTS ###
@@ -94,9 +94,9 @@ app.config['DEBUG'] = api_config['flask_debug']
 # Create a custom logging function
 def system_log(data):
     # Open the file SYSTEM.txt in the configured log directory in append mode
-    with open(f"{log_directory}SYSTEM.txt", 'a') as f:
+    with open(f"{log_directory}SYSTEM.txt", 'a') as log_file:
         # Append the provided data to the file
-        f.write(f'{time()}: {str(data)}\n\n\n')
+        log_file.write(f'{time()}: {str(data)}\n\n\n')
     return
 
 
@@ -188,11 +188,11 @@ def hash_password(password):
     # Generate some salt to add to the password
     salt = hashlib.sha256(os.urandom(60)).hexdigest().encode('ascii')
     # Hash the password along with the salt
-    pwdhash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), salt, 100000)
+    pw_hash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), salt, 100000)
     # Convert the binary hash to hexadecimal
-    pwdhash = binascii.hexlify(pwdhash)
+    pw_hash = binascii.hexlify(pw_hash)
     # Return the hashed password
-    return (salt + pwdhash).decode('ascii')
+    return (salt + pw_hash).decode('ascii')
 
 
 # Create a function to compare a plaintext password to a hashed password
@@ -202,14 +202,14 @@ def verify_password(stored_password, provided_password):
     # Get the hash of the stored password
     stored_password = stored_password[64:]
     # Generate a hash for the provided_password
-    pwdhash = hashlib.pbkdf2_hmac('sha512',
+    pw_hash = hashlib.pbkdf2_hmac('sha512',
                                   provided_password.encode('utf-8'),
                                   salt.encode('ascii'),
                                   100000)
     # Convert the binary hash to hexadecimal
-    pwdhash = binascii.hexlify(pwdhash).decode('ascii')
+    pw_hash = binascii.hexlify(pw_hash).decode('ascii')
     # Compare the provided passwords
-    return pwdhash == stored_password
+    return pw_hash == stored_password
 
 
 # Create a function to check if a set of credentials is valid
@@ -287,10 +287,58 @@ def api_historical(_id, _val_name, _data):
     # Check if we should be logging historical data
     if api_enable_historical is True:
         # Open the file in append mode
-        with open(f'{historical_directory}{_id}/{_val_name}.txt', 'a') as f:
+        with open(f'{historical_directory}{_id}/{_val_name}.txt', 'a') as historical_file:
             # Append the value
-            f.write(f'"{time()}": "{str(_data)}"\n')
+            historical_file.write(f'"{time()}": "{str(_data)}"\n')
     return True
+
+
+# Create a decorator function to use for checking if a user of the api is authorised
+def check_auth(access_level):
+    def decorator(function):
+        @wraps(function)
+        def wrapper(*args, **kwargs):
+            if type(access_level) == str:
+                # If the argument access_level is a string,
+                # check whether the provided id is authorised for a single access_level
+                authorised = auth(request.values['id'], request.values['auth'], access_level=access_level)
+                if authorised is False:
+                    # Let the client know that their credentials were invalid
+                    abort(401, description='Error: you do not have the proper credentials')
+                else:
+                    return function(*args, **kwargs)
+
+            elif type(access_level) == list:
+                # If the argument access_level is a list,
+                # check where the provided id is authorised for any of the access_levels in the list
+                authorised = []
+                # Loop through the provided list of access_levels, checking
+                # each one and appending the result to "authorised"
+                for level in access_level:
+                    authorised.append(auth(request.values['id'], request.values['auth'], access_level=level))
+                if True in authorised:
+                    return function(*args, **kwargs)
+                else:
+                    # Let the client know that their credentials were invalid
+                    abort(401, description='Error: you do not have the proper credentials')
+            else:
+                # Log that the argument access_level is an unsupported type
+                system_log(f'ERROR:000004 access_level type is {type(access_level)}')
+        return wrapper
+    return decorator
+
+
+# Create a decorator function to use for checking whether all required arguments have been supplied to an api endpoint
+def check_args(required_args):
+    def decorator(function):
+        @wraps(function)
+        def wrapper(*args, **kwargs):
+            for arg in required_args:
+                if arg not in request.values:
+                    abort(400, description=f'Error: missing required argument "{arg}"')
+            return function(*args, **kwargs)
+        return wrapper
+    return decorator
 
 # #############################
 # ### END GENERAL FUNCTIONS ###
@@ -302,12 +350,9 @@ def api_historical(_id, _val_name, _data):
 # #############################
 
 @app.route(f'{api_base_url}{api_admin_prefix}new_auth', methods=['POST', 'GET'])
+@check_args(required_args=['id', 'auth', 'access_level'])
 def api_admin_new_auth():
     _system_name = None
-    required_args = ['id', 'auth', 'access_level']
-    for arg in required_args:
-        if arg not in request.values:
-            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
     _auth = request.values['auth']
     _access_level = request.values['access_level']
@@ -361,16 +406,11 @@ def api_check_auth(_id=None, _auth=None):
 # ### BEGIN SYSTEM ENDPOINTS ###
 # ##############################
 
-@app.route(f'{api_base_url}{api_value_update_prefix}heartbeat', methods=['POST'])
+@app.route(f'{api_base_url}{api_value_update_prefix}heartbeat', methods=['POST', 'GET'])
+@check_args(required_args=['id', 'auth'])
+@check_auth(access_level='system')
 def api_update_heartbeat():
-    required_args = ['id', 'auth']
-    for arg in required_args:
-        if arg not in request.values:
-            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return 'Error: you do not have the proper credentials', 401
     now = time()
     database_operations_queue.put(['update_row', 'systems_stats', str(_id), 'heartbeat', str(now)])
     api_historical(_id, 'heartbeat', now)
@@ -378,31 +418,21 @@ def api_update_heartbeat():
 
 
 @app.route(f'{api_base_url}{api_value_update_prefix}logging', methods=['POST'])
+@check_args(required_args=['id', 'auth', 'data'])
+@check_auth(access_level='system')
 def api_update_logging():
-    required_args = ['id', 'auth', 'data']
-    for arg in required_args:
-        if arg not in request.values:
-            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return 'Error: you do not have the proper credentials', 401
     _data = request.values['data']
-    with open(f"{log_directory}{str(_id)}.txt", 'a') as f:
-        f.write(f'{time()}: {str(_data)}\n\n\n')
+    with open(f"{log_directory}{str(_id)}.txt", 'a') as log_file:
+        log_file.write(f'{time()}: {str(_data)}\n\n\n')
     return '', 200
 
 
 @app.route(f'{api_base_url}{api_value_update_prefix}main', methods=['POST'])
+@check_args(required_args=['id', 'auth', 'value', 'data'])
+@check_auth(access_level='system')
 def api_update_main():
-    required_args = ['id', 'auth', 'value', 'data']
-    for arg in required_args:
-        if arg not in request.values:
-            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='system') is False:
-        return 'Error: you do not have the proper credentials', 401
     _value = request.values['value']
     try:
         _data = json.loads(request.values['data'])
@@ -422,11 +452,9 @@ def api_update_main():
 # ##############################
 
 @app.route(f'{api_base_url}{api_value_fetch_prefix}main', methods=['GET', 'POST'])
+@check_args(required_args=['id', 'auth', 'system_id', 'value'])
+@check_auth(access_level='client')
 def api_fetch_main():
-    required_args = ['id', 'auth', 'system_id', 'value']
-    for arg in required_args:
-        if arg not in request.values:
-            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
     _auth = request.values['auth']
     if auth(_id, _auth, access_level='client') is False and \
@@ -439,7 +467,10 @@ def api_fetch_main():
         if (str(_system_id),) not in _cur.execute('SELECT id FROM auth').fetchall():
             return 'Error: that system ID does not exist', 400
     with closing(sqlite3.connect(database_path)) as _db, closing(_db.cursor()) as _cur:
-        _temp = json.loads(_cur.execute('SELECT system_data FROM systems_stats WHERE id = ?', (_system_id,)).fetchone()[0])
+        _temp = json.loads(_cur.execute(
+            'SELECT system_data FROM systems_stats WHERE id = ?',
+            (_system_id,)
+        ).fetchone()[0])
     try:
         return jsonify(_temp[_value])
     except KeyError:
@@ -447,17 +478,10 @@ def api_fetch_main():
 
 
 @app.route(f'{api_base_url}{api_value_fetch_prefix}heartbeat', methods=['GET', 'POST'])
+@check_args(required_args=['id', 'auth', 'system_id'])
+@check_auth(access_level=['client', 'admin', 'owner'])
 def api_fetch_heartbeat():
-    required_args = ['id', 'auth', 'system_id']
-    for arg in required_args:
-        if arg not in request.values:
-            return f'Error: missing required argument "{arg}"', 400
     _id = request.values['id']
-    _auth = request.values['auth']
-    if auth(_id, _auth, access_level='client') is False and \
-            auth(_id, _auth, access_level='admin') is False and \
-            auth(_id, _auth, access_level='owner') is False:
-        return 'Error: you do not have the proper credentials', 401
     _system_id = request.values['system_id']
     with closing(sqlite3.connect(database_path)) as _db, closing(_db.cursor()) as _cur:
         if (str(_system_id),) not in _cur.execute('SELECT id FROM auth').fetchall():
