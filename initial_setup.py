@@ -5,10 +5,7 @@ import yaml
 import sqlite3
 from random import choice
 from string import ascii_lowercase, digits as ascii_digits, ascii_uppercase
-
-
-
-debug_mode = False
+from json import dumps as json_dumps
 
 
 def hash_password(password):
@@ -153,22 +150,5 @@ if __name__ == '__main__':
     con.commit()
     con.close()
     print(f'"Owner" level credentials: ')
-    print(f'"ID: {owner_id}')
-    print(f'"Password: {owner_pass}')
-
-    if debug_mode is True:
-        print("Do you want to revert all changes? [y] [n]")
-        revert_changes = input()
-        if revert_changes == 'y':
-            try:
-                os.remove(f'{base_path}/.env')
-            except FileNotFoundError:
-                pass
-            try:
-                os.remove(f'{base_path}/conf.yaml')
-            except FileNotFoundError:
-                pass
-            try:
-                os.remove(f'{base_path}/main.sqlite')
-            except FileNotFoundError:
-                pass
+    print(json_dumps({'id': owner_id, 'auth': owner_pass}))
+    exit(0)
